@@ -1,0 +1,6 @@
+CREATE TABLE votacao.pauta (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    titulo VARCHAR(150) NOT NULL,
+    descricao VARCHAR(1000) NOT NULL,
+    data_criacao TIMESTAMP NOT NULL
+);
