@@ -1,5 +1,6 @@
 package br.com.desafiovotacao.service.impl;
 
+import br.com.desafiovotacao.dto.ContabilizacaoVotosResponse;
 import br.com.desafiovotacao.dto.RegistrarVotoRequest;
 import br.com.desafiovotacao.dto.VotoResponse;
 import br.com.desafiovotacao.entity.Pauta;
@@ -68,6 +69,21 @@ public class VotoServiceImpl implements VotoService {
         log.info("Voto registrado. pautaId={}, votoId={}", pautaId, salvo.getId());
         return new VotoResponse(salvo.getId(), salvo.getPauta().getId(), salvo.getAssociadoId(),
                 salvo.getOpcao(), salvo.getDataVoto());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ContabilizacaoVotosResponse contabilizar(Long pautaId) {
+        log.debug("Iniciando contabilização de votos. pautaId={}", pautaId);
+        if (!pautaRepository.existsById(pautaId)) {
+            log.warn("Tentativa de contabilização de pauta inexistente. pautaId={}", pautaId);
+            throw new PautaNaoEncontradaException(pautaId);
+        }
+
+        ContabilizacaoVotosResponse resultado = votoRepository.contabilizarPorPautaId(pautaId);
+        log.debug("Votos contabilizados. pautaId={}, votosSim={}, votosNao={}, totalVotos={}",
+                pautaId, resultado.votosSim(), resultado.votosNao(), resultado.totalVotos());
+        return resultado;
     }
 
     private VotoDuplicadoException votoDuplicado(Long pautaId) {
