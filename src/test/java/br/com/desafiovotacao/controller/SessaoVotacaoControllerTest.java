@@ -1,5 +1,7 @@
 package br.com.desafiovotacao.controller;
 
+import br.com.desafiovotacao.exception.GlobalExceptionHandler;
+import java.time.Clock;
 import br.com.desafiovotacao.dto.AbrirSessaoRequest;
 import br.com.desafiovotacao.dto.SessaoVotacaoResponse;
 import br.com.desafiovotacao.exception.PautaNaoEncontradaException;
@@ -36,7 +38,8 @@ class SessaoVotacaoControllerTest {
 
     @BeforeEach
     void configurar() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new SessaoVotacaoController(service)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(new SessaoVotacaoController(service))
+                .setControllerAdvice(new GlobalExceptionHandler(Clock.systemDefaultZone())).build();
     }
 
     @Test

@@ -1,5 +1,7 @@
 package br.com.desafiovotacao.controller;
 
+import br.com.desafiovotacao.exception.GlobalExceptionHandler;
+import java.time.Clock;
 import br.com.desafiovotacao.dto.RegistrarVotoRequest;
 import br.com.desafiovotacao.dto.VotoResponse;
 import br.com.desafiovotacao.entity.OpcaoVoto;
@@ -39,7 +41,8 @@ class VotoControllerTest {
 
     @BeforeEach
     void configurar() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new VotoController(service)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(new VotoController(service))
+                .setControllerAdvice(new GlobalExceptionHandler(Clock.systemDefaultZone())).build();
     }
 
     @ParameterizedTest

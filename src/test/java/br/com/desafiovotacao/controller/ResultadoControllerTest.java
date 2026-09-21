@@ -1,5 +1,7 @@
 package br.com.desafiovotacao.controller;
 
+import br.com.desafiovotacao.exception.GlobalExceptionHandler;
+import java.time.Clock;
 import br.com.desafiovotacao.dto.ContabilizacaoVotosResponse;
 import br.com.desafiovotacao.exception.PautaNaoEncontradaException;
 import br.com.desafiovotacao.service.VotoService;
@@ -32,7 +34,8 @@ class ResultadoControllerTest {
 
     @BeforeEach
     void configurar() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new ResultadoController(service)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(new ResultadoController(service))
+                .setControllerAdvice(new GlobalExceptionHandler(Clock.systemDefaultZone())).build();
     }
 
     @ParameterizedTest

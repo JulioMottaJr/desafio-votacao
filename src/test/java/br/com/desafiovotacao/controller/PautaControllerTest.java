@@ -1,5 +1,7 @@
 package br.com.desafiovotacao.controller;
 
+import br.com.desafiovotacao.exception.GlobalExceptionHandler;
+import java.time.Clock;
 import br.com.desafiovotacao.dto.CriarPautaRequest;
 import br.com.desafiovotacao.dto.PautaResponse;
 import br.com.desafiovotacao.service.PautaService;
@@ -35,7 +37,8 @@ class PautaControllerTest {
 
     @BeforeEach
     void configurar() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new PautaController(service)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(new PautaController(service))
+                .setControllerAdvice(new GlobalExceptionHandler(Clock.systemDefaultZone())).build();
     }
 
     @Test
