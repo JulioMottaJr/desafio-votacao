@@ -115,3 +115,40 @@ A tela do tipo SELECAO exibe uma lista de opções para que o usuário.
 O aplicativo envia uma requisição POST para a url informada e com o body definido pelo objeto dentro de cada item da lista de seleção, quando o mesmo é acionado, semelhando ao funcionamento dos botões da tela FORMULARIO.
 
 # desafio-votacao
+
+## Teste de performance
+
+Com o PostgreSQL configurado e as migrations do projeto já aplicadas, execute:
+
+```shell
+mvn test -Dtest=VotoPerformanceTest
+mvn test -Dtest=VotoPerformanceTest -Dperformance.votes=500000
+```
+
+O padrão é 100.000 votos. Use no terminal as mesmas variáveis `DB_URL`,
+`DB_USERNAME` e `DB_PASSWORD` da aplicação (as variáveis do IntelliJ não são
+automaticamente compartilhadas com o terminal). Não é necessário iniciar a API.
+O teste não inicia servidor HTTP, não executa Flyway e apenas valida o schema existente.
+
+A pauta, sessão e votos são gerados automaticamente por SQL com `generate_series`,
+sem cadastro manual, chamadas HTTP ou uma lista de entidades em memória.
+A distribuição é determinística: metade SIM e o restante NAO. A contabilização
+executa o método JPQL real `VotoRepository.contabilizarPorPautaId`.
+O relatório apresenta preparação e contabilização sem limite arbitrário de tempo.
+O teste mede uma consulta após inserção, com dados em cache; não é um teste de
+throughput HTTP, concorrência ou latência do Client.
+
+Toda a massa permanece em uma transação sem commit e é desfeita por rollback,
+inclusive em caso de falha. Nenhum dado anterior é apagado. As sequências de IDs
+avançam mesmo com rollback; a execução consome recursos e pode gerar espaço
+recuperável pelo autovacuum. Evite executá-la durante medições concorrentes.
+`mvn test` e `mvn clean test` normais excluem este benchmark; `-Dtest=VotoPerformanceTest`
+o seleciona explicitamente.
+
+## Versionamento da API
+
+A estratégia é versionamento pela URL: `/api/v1/...`. Pautas, sessões, votos,
+resultado e contratos mobile usam esse prefixo. Mudanças compatíveis permanecem
+na v1; mudanças que quebrem contratos exigirão uma nova versão, com transição
+documentada para os consumidores. Nenhuma v2 foi criada. Endpoints técnicos de
+infraestrutura não precisam seguir o versionamento funcional.
