@@ -1,5 +1,8 @@
 package br.com.desafiovotacao.controller;
 
+import br.com.desafiovotacao.client.CpfInvalidoException;
+import br.com.desafiovotacao.exception.AssociadoNaoHabilitadoException;
+
 import br.com.desafiovotacao.exception.GlobalExceptionHandler;
 import java.time.Clock;
 import br.com.desafiovotacao.dto.RegistrarVotoRequest;
@@ -105,6 +108,36 @@ class VotoControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"associadoId\":\"123\",\"opcao\":\"SIM\"}"))
                 .andExpect(status().is(statusEsperado));
+    }
+
+    @ParameterizedTest
+    @MethodSource("errosDeElegibilidade")
+    void deveRetornarErroDeElegibilidadePadronizadoSemExporCpf(RuntimeException exception,
+            int statusEsperado, String error) throws Exception {
+        RegistrarVotoRequest request = new RegistrarVotoRequest("00000000000", OpcaoVoto.SIM);
+        when(service.registrar(1L, request)).thenThrow(exception);
+
+        mockMvc.perform(post("/api/v1/pautas/1/votos")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"associadoId\":\"00000000000\",\"opcao\":\"SIM\"}"))
+                .andExpect(status().is(statusEsperado))
+                .andExpect(jsonPath("$.timestamp").isString())
+                .andExpect(jsonPath("$.status").value(statusEsperado))
+                .andExpect(jsonPath("$.error").value(error))
+                .andExpect(jsonPath("$.message").value(exception.getMessage()))
+                .andExpect(jsonPath("$.path").value("/api/v1/pautas/1/votos"))
+                .andExpect(jsonPath("$.*").value(org.hamcrest.Matchers.hasSize(5)))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString(request.associadoId()))))
+                .andExpect(jsonPath("$.trace").doesNotExist())
+                .andExpect(jsonPath("$.stackTrace").doesNotExist());
+    }
+
+    static Stream<Arguments> errosDeElegibilidade() {
+        return Stream.of(
+                Arguments.of(new CpfInvalidoException(), 404, "Not Found"),
+                Arguments.of(new AssociadoNaoHabilitadoException(), 403, "Forbidden")
+        );
     }
 
     static Stream<Arguments> errosDeDominio() {

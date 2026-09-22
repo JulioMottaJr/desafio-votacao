@@ -1,5 +1,9 @@
 package br.com.desafiovotacao.service.impl;
 
+import br.com.desafiovotacao.client.AssociadoClient;
+import br.com.desafiovotacao.client.StatusElegibilidade;
+import br.com.desafiovotacao.exception.AssociadoNaoHabilitadoException;
+
 import br.com.desafiovotacao.dto.ContabilizacaoVotosResponse;
 import br.com.desafiovotacao.dto.RegistrarVotoRequest;
 import br.com.desafiovotacao.dto.VotoResponse;
@@ -33,6 +37,7 @@ public class VotoServiceImpl implements VotoService {
     private final SessaoVotacaoRepository sessaoVotacaoRepository;
     private final VotoRepository votoRepository;
     private final Clock clock;
+    private final AssociadoClient associadoClient;
 
     @Override
     @Transactional
@@ -52,6 +57,13 @@ public class VotoServiceImpl implements VotoService {
         }
         if (votoRepository.existsByPautaIdAndAssociadoId(pautaId, request.associadoId())) {
             throw votoDuplicado(pautaId);
+        }
+
+        // No bônus, o identificador existente é utilizado como CPF na consulta externa.
+        if (associadoClient.consultarElegibilidade(request.associadoId()).status()
+                == StatusElegibilidade.UNABLE_TO_VOTE) {
+            log.warn("Associado não habilitado para votar. pautaId={}", pautaId);
+            throw new AssociadoNaoHabilitadoException();
         }
 
         Voto voto = new Voto(pauta, request.associadoId(), request.opcao(), agora);

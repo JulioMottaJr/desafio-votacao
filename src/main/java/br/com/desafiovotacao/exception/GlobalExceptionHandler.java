@@ -1,5 +1,7 @@
 package br.com.desafiovotacao.exception;
 
+import br.com.desafiovotacao.client.CpfInvalidoException;
+
 import br.com.desafiovotacao.dto.ErroResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +29,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private final Clock clock;
 
-    @ExceptionHandler({PautaNaoEncontradaException.class, SessaoNaoEncontradaException.class})
+    @ExceptionHandler({PautaNaoEncontradaException.class, SessaoNaoEncontradaException.class,
+            CpfInvalidoException.class})
     public ResponseEntity<Object> recursoNaoEncontrado(RuntimeException exception, WebRequest request) {
         return resposta(HttpStatus.NOT_FOUND, exception.getMessage(), request, HttpHeaders.EMPTY, Map.of());
     }
@@ -36,6 +39,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             SessaoEncerradaException.class})
     public ResponseEntity<Object> conflito(RuntimeException exception, WebRequest request) {
         return resposta(HttpStatus.CONFLICT, exception.getMessage(), request, HttpHeaders.EMPTY, Map.of());
+    }
+
+    @ExceptionHandler(AssociadoNaoHabilitadoException.class)
+    public ResponseEntity<Object> associadoNaoHabilitado(AssociadoNaoHabilitadoException exception,
+            WebRequest request) {
+        return resposta(HttpStatus.FORBIDDEN, exception.getMessage(), request, HttpHeaders.EMPTY, Map.of());
     }
 
     @Override

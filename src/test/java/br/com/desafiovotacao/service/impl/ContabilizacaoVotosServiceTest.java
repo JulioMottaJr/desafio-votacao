@@ -1,5 +1,6 @@
 package br.com.desafiovotacao.service.impl;
 
+import br.com.desafiovotacao.client.AssociadoClient;
 import br.com.desafiovotacao.dto.ContabilizacaoVotosResponse;
 import br.com.desafiovotacao.entity.Pauta;
 import br.com.desafiovotacao.entity.SessaoVotacao;
@@ -35,12 +36,15 @@ class ContabilizacaoVotosServiceTest {
     @Mock
     private VotoRepository votoRepository;
 
+    @Mock
+    private AssociadoClient associadoClient;
+
     private VotoServiceImpl service;
     private final Clock clock = Clock.fixed(Instant.parse("2026-09-21T10:00:00Z"), ZoneOffset.UTC);
 
     @BeforeEach
     void configurar() {
-        service = new VotoServiceImpl(pautaRepository, sessaoRepository, votoRepository, clock);
+        service = new VotoServiceImpl(pautaRepository, sessaoRepository, votoRepository, clock, associadoClient);
     }
 
     @ParameterizedTest

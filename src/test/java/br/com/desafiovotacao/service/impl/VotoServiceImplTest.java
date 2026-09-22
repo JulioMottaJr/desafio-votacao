@@ -1,5 +1,10 @@
 package br.com.desafiovotacao.service.impl;
 
+import br.com.desafiovotacao.client.AssociadoClient;
+import br.com.desafiovotacao.client.CpfInvalidoException;
+import br.com.desafiovotacao.client.ElegibilidadeResponse;
+import br.com.desafiovotacao.client.StatusElegibilidade;
+import br.com.desafiovotacao.exception.AssociadoNaoHabilitadoException;
 import br.com.desafiovotacao.dto.RegistrarVotoRequest;
 import br.com.desafiovotacao.dto.VotoResponse;
 import br.com.desafiovotacao.entity.OpcaoVoto;
@@ -47,6 +52,9 @@ class VotoServiceImplTest {
     @Mock
     private VotoRepository votoRepository;
 
+    @Mock
+    private AssociadoClient associadoClient;
+
     private VotoServiceImpl service;
     private Pauta pauta;
     private SessaoVotacao sessao;
@@ -57,7 +65,7 @@ class VotoServiceImplTest {
     @BeforeEach
     void configurar() {
         clock = spy(Clock.fixed(Instant.parse("2026-09-20T13:00:00Z"), ZoneId.of("America/Sao_Paulo")));
-        service = new VotoServiceImpl(pautaRepository, sessaoRepository, votoRepository, clock);
+        service = new VotoServiceImpl(pautaRepository, sessaoRepository, votoRepository, clock, associadoClient);
         pauta = new Pauta("Título", "Descrição", agora.minusDays(1));
         ReflectionTestUtils.setField(pauta, "id", 1L);
         sessao = new SessaoVotacao(pauta, agora.minusMinutes(1), agora.plusMinutes(1));
@@ -72,6 +80,8 @@ class VotoServiceImplTest {
     @EnumSource(OpcaoVoto.class)
     void devePersistirVotoComHorarioDoClockSemAlterarSessao(OpcaoVoto opcao) {
         prepararSessaoAberta();
+        when(associadoClient.consultarElegibilidade(request.associadoId()))
+                .thenReturn(new ElegibilidadeResponse(StatusElegibilidade.ABLE_TO_VOTE));
         when(votoRepository.saveAndFlush(any(Voto.class))).thenAnswer(invocation -> {
             Voto voto = invocation.getArgument(0);
             assertThat(voto.getId()).isNull();
@@ -93,6 +103,38 @@ class VotoServiceImplTest {
         verify(votoRepository).existsByPautaIdAndAssociadoId(1L, "00123456");
         verify(votoRepository).saveAndFlush(any(Voto.class));
         verify(clock, times(1)).instant();
+        var ordem = inOrder(votoRepository, associadoClient);
+        ordem.verify(votoRepository).existsByPautaIdAndAssociadoId(1L, request.associadoId());
+        ordem.verify(associadoClient).consultarElegibilidade(request.associadoId());
+        ordem.verify(votoRepository).saveAndFlush(any(Voto.class));
+        verifyNoMoreInteractions(associadoClient);
+    }
+
+    @Test
+    void deveRejeitarAssociadoNaoHabilitadoSemPersistir() {
+        prepararSessaoAberta();
+        when(associadoClient.consultarElegibilidade(request.associadoId()))
+                .thenReturn(new ElegibilidadeResponse(StatusElegibilidade.UNABLE_TO_VOTE));
+
+        assertThatThrownBy(() -> service.registrar(1L, request))
+                .isExactlyInstanceOf(AssociadoNaoHabilitadoException.class);
+
+        verify(associadoClient).consultarElegibilidade(request.associadoId());
+        verify(votoRepository, never()).save(any());
+        verify(votoRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void devePropagarCpfInvalidoSemPersistir() {
+        prepararSessaoAberta();
+        CpfInvalidoException erro = new CpfInvalidoException();
+        when(associadoClient.consultarElegibilidade(request.associadoId())).thenThrow(erro);
+
+        assertThatThrownBy(() -> service.registrar(1L, request)).isSameAs(erro);
+
+        verify(associadoClient).consultarElegibilidade(request.associadoId());
+        verify(votoRepository, never()).save(any());
+        verify(votoRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -101,7 +143,7 @@ class VotoServiceImplTest {
 
         assertThatThrownBy(() -> service.registrar(1L, request)).isInstanceOf(PautaNaoEncontradaException.class);
 
-        verifyNoInteractions(sessaoRepository, votoRepository);
+        verifyNoInteractions(sessaoRepository, votoRepository, associadoClient);
     }
 
     @Test
@@ -111,7 +153,7 @@ class VotoServiceImplTest {
 
         assertThatThrownBy(() -> service.registrar(1L, request)).isInstanceOf(SessaoNaoEncontradaException.class);
 
-        verifyNoInteractions(votoRepository);
+        verifyNoInteractions(votoRepository, associadoClient);
     }
 
     @ParameterizedTest
@@ -122,7 +164,7 @@ class VotoServiceImplTest {
 
         assertThatThrownBy(() -> service.registrar(1L, request)).isInstanceOf(SessaoEncerradaException.class);
 
-        verifyNoInteractions(votoRepository);
+        verifyNoInteractions(votoRepository, associadoClient);
     }
 
     @Test
@@ -133,6 +175,7 @@ class VotoServiceImplTest {
         assertThatThrownBy(() -> service.registrar(1L, request)).isInstanceOf(VotoDuplicadoException.class);
 
         verify(votoRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(associadoClient);
     }
 
     @Test
@@ -140,6 +183,8 @@ class VotoServiceImplTest {
         prepararSessaoAberta();
         ConstraintViolationException causa = new ConstraintViolationException(
                 "Duplicidade", new SQLException("Duplicidade", "23505"), "uk_voto_pauta_associado");
+        when(associadoClient.consultarElegibilidade(request.associadoId()))
+                .thenReturn(new ElegibilidadeResponse(StatusElegibilidade.ABLE_TO_VOTE));
         when(votoRepository.saveAndFlush(any())).thenThrow(new DataIntegrityViolationException("Falha", causa));
 
         assertThatThrownBy(() -> service.registrar(1L, request)).isInstanceOf(VotoDuplicadoException.class);
@@ -152,6 +197,8 @@ class VotoServiceImplTest {
         ConstraintViolationException causa = new ConstraintViolationException(
                 "Integridade", new SQLException("Integridade"), constraint);
         DataIntegrityViolationException falha = new DataIntegrityViolationException("Falha", causa);
+        when(associadoClient.consultarElegibilidade(request.associadoId()))
+                .thenReturn(new ElegibilidadeResponse(StatusElegibilidade.ABLE_TO_VOTE));
         when(votoRepository.saveAndFlush(any())).thenThrow(falha);
 
         assertThatThrownBy(() -> service.registrar(1L, request)).isSameAs(falha);
