@@ -1,3 +1,173 @@
+# Desafio Votação API
+
+API REST para cadastro de pautas, sessões, votos e contabilização, com contratos JSON para aplicativos mobile. O enunciado da empresa está preservado integralmente ao final; as decisões abaixo descrevem a implementação.
+
+## Tecnologias e pré-requisitos
+
+Java 21, Maven 3.6.3+, PostgreSQL acessível, Spring Boot 4.1.1, Spring MVC, JPA/Hibernate, Bean Validation, Flyway, SLF4J/Logback, springdoc OpenAPI 3.1.1, JUnit Jupiter, Mockito e AssertJ.
+
+## Configuração e execução
+
+Execute na raiz do repositório. O database deve existir previamente; o padrão é `postgres`. Configure no terminal ou no IntelliJ:
+
+| Variável | Padrão | Uso |
+|---|---|---|
+| `DB_URL` | `jdbc:postgresql://localhost:5432/postgres` | Database PostgreSQL existente |
+| `DB_USERNAME` | `postgres` | Usuário com permissão para migrations |
+| `DB_PASSWORD` | Sem padrão, obrigatória | Senha, fornecida fora do repositório |
+
+Exemplo PowerShell, com leitura da senha sem mostrá-la:
+
+```powershell
+$env:DB_URL = 'jdbc:postgresql://localhost:5432/postgres'
+$env:DB_USERNAME = 'postgres'
+$env:DB_PASSWORD = Read-Host 'Senha do PostgreSQL' -MaskInput
+mvn clean test
+mvn spring-boot:run
+```
+
+`-MaskInput` requer PowerShell 7.1+. Em outros ambientes, configure a variável pelo mecanismo seguro do terminal/IDE. Arquivos `.env` não são carregados automaticamente. Variáveis definidas somente no IntelliJ não são herdadas por outros terminais.
+
+Flyway cria o schema `votacao` e aplica `src/main/resources/db/migration` automaticamente ao iniciar. JPA utiliza `ddl-auto=validate`, sem criar tabelas. Não edite migrations já aplicadas.
+
+Alternativa para empacotar e executar:
+
+```shell
+mvn clean package
+java -jar target/desafio-votacao-0.0.1-SNAPSHOT.jar
+```
+
+Escolha uma forma de execução por vez. A porta padrão é 8080. Não há autenticação implementada, conforme a abstração permitida no desafio.
+
+## Endpoints
+
+| Método | Rota | Finalidade |
+|---|---|---|
+| POST | `/api/v1/pautas` | Criar pauta (201) |
+| POST | `/api/v1/pautas/{pautaId}/sessoes` | Abrir sessão (201) |
+| POST | `/api/v1/pautas/{pautaId}/votos` | Registrar voto (201) |
+| GET | `/api/v1/pautas/{pautaId}/resultado` | Obter `pautaId`, `sim`, `nao`, `total` |
+| GET | `/api/v1/mobile/pautas/nova` | FORMULARIO de pauta |
+| GET | `/api/v1/mobile/pautas/{pautaId}/sessoes/nova` | FORMULARIO de sessão |
+| GET | `/api/v1/mobile/pautas/{pautaId}/votos/novo` | SELECAO de voto |
+
+As telas mobile retornam ações POST com URLs relativas à origem da API. Não validam existência da pauta ao montar a tela. Não existem endpoints GET individuais para pauta, sessão ou voto.
+
+### Exemplos de bodies JSON
+
+Criar pauta:
+
+```json
+{"titulo":"Aquisição de equipamentos","descricao":"Deliberar sobre a compra."}
+```
+
+Abrir sessão (ou `{}` para usar 1 minuto):
+
+```json
+{"duracaoMinutos":5}
+```
+
+Votar (identificador fictício; o Fake decide aleatoriamente):
+
+```json
+{"associadoId":"00000000000","opcao":"SIM"}
+```
+
+## Regras e integridade
+
+Título e descrição são obrigatórios, limitados a 150 e 1000 caracteres. A duração da sessão é um inteiro de pelo menos 1 minuto; ausência/null usa 1 minuto. Existe uma sessão por pauta. No instante de encerramento ou depois dele, novos votos são rejeitados.
+
+A opção aceita exatamente `SIM` ou `NAO`; `associadoId` é obrigatório e possui limite de 100 caracteres. Cada associado vota uma vez por pauta. A UNIQUE `(pauta_id, associado_id)` protege inclusive contra concorrência, além da verificação prévia. `saveAndFlush` permite traduzir a violação dessa constraint dentro da operação transacional.
+
+A contabilização usa agregação no PostgreSQL e não carrega os votos em memória. Pode ser consultada durante a sessão; sem votos retorna zeros.
+
+## CPF e elegibilidade: decisão da implementação
+
+O identificador `associadoId` é enviado como CPF ao `AssociadoClient`, mantendo o JSON e o banco existentes. O Fake é local, sem HTTP externo ou validação matemática, e sorteia validade e elegibilidade. O mesmo identificador pode obter resultados diferentes em chamadas diferentes.
+
+- CPF considerado inválido: 404.
+- CPF válido e `ABLE_TO_VOTE`: permite persistir o voto.
+- CPF válido e `UNABLE_TO_VOTE`: 403, sem persistir.
+
+O enunciado tem ambiguidade: seu texto diferencia CPF inválido de inaptidão, mas o comentário junto a UNABLE_TO_VOTE menciona 404. A separação 404/403 é uma decisão de contrato desta implementação; o original não determina inequivocamente 403.
+
+Validações locais precedem o Fake: pauta, sessão, encerramento e duplicidade. Por isso, duplicidade ou sessão encerrada retornam 409 antes da consulta de elegibilidade.
+
+## Erros e logs
+
+Respostas de erro utilizam este formato, sem stack trace:
+
+```json
+{"timestamp":"2026-09-21T10:00:00","status":403,"error":"Forbidden","message":"Associado não habilitado para votar.","path":"/api/v1/pautas/1/votos"}
+```
+
+Erros de validação (400) também podem conter `fields`, um mapa campo/mensagem. Pauta/sessão ausente ou CPF inválido retornam 404; sessão repetida, voto duplicado e sessão encerrada retornam 409. Falhas inesperadas retornam 500 genérico, com diagnóstico no servidor.
+
+Logs usam SLF4J/Logback no console e em `logs/desafio-votacao.log`, com rotação nativa do Spring Boot. `logs/` não é versionado. Eventos de negócio usam INFO, rejeições relevantes WARN e contabilização DEBUG. Não são registrados CPF, associadoId ou credenciais nos logs de negócio.
+
+## Swagger / OpenAPI
+
+Com a aplicação executando na configuração padrão:
+
+- Swagger UI: http://localhost:8080/swagger-ui.html (redireciona para `/swagger-ui/index.html`).
+- OpenAPI JSON: http://localhost:8080/v3/api-docs.
+
+A interface permite executar chamadas reais; operações POST podem criar dados. Os endpoints técnicos de documentação não usam o prefixo funcional `/api/v1`.
+
+## Testes
+
+```shell
+mvn test
+mvn clean test
+```
+
+A suíte normal usa testes unitários e MockMvc, incluindo geração OpenAPI e recursos Swagger UI sem servidor HTTP ou PostgreSQL. O benchmark pesado é excluído dessas execuções.
+
+## Estrutura
+
+`controller` e `dto`: contratos HTTP/mobile; `service`: regras; `repository` e `entity`: persistência; `client`: integração fake; `exception`: erros; `config`: Clock e OpenAPI.
+
+## Teste de performance
+
+Com o PostgreSQL configurado e as migrations do projeto já aplicadas, execute:
+
+```shell
+mvn test -Dtest=VotoPerformanceTest
+mvn test -Dtest=VotoPerformanceTest -Dperformance.votes=500000
+```
+
+O padrão é 100.000 votos. Use no terminal as mesmas variáveis `DB_URL`,
+`DB_USERNAME` e `DB_PASSWORD` da aplicação (as variáveis do IntelliJ não são
+automaticamente compartilhadas com o terminal). Não é necessário iniciar a API.
+O teste não inicia servidor HTTP, não executa Flyway e apenas valida o schema existente.
+
+A pauta, sessão e votos são gerados automaticamente por SQL com `generate_series`,
+sem cadastro manual, chamadas HTTP ou uma lista de entidades em memória.
+A distribuição é determinística: metade SIM e o restante NAO. A contabilização
+executa o método JPQL real `VotoRepository.contabilizarPorPautaId`.
+O relatório apresenta preparação e contabilização sem limite arbitrário de tempo.
+O teste mede uma consulta após inserção, com dados em cache; não é um teste de
+throughput HTTP, concorrência ou latência do Client.
+
+Toda a massa permanece em uma transação sem commit e é desfeita por rollback,
+inclusive em caso de falha. Nenhum dado anterior é apagado. As sequências de IDs
+avançam mesmo com rollback; a execução consome recursos e pode gerar espaço
+recuperável pelo autovacuum. Evite executá-la durante medições concorrentes.
+`mvn test` e `mvn clean test` normais excluem este benchmark; `-Dtest=VotoPerformanceTest`
+o seleciona explicitamente.
+
+## Versionamento da API
+
+A estratégia é versionamento pela URL: `/api/v1/...`. Pautas, sessões, votos,
+resultado e contratos mobile usam esse prefixo. Mudanças compatíveis permanecem
+na v1; mudanças que quebrem contratos exigirão uma nova versão, com transição
+documentada para os consumidores. Nenhuma v2 foi criada. Endpoints técnicos de
+infraestrutura não precisam seguir o versionamento funcional.
+
+---
+
+# Enunciado original do desafio (preservado)
+
 # Votação
 
 ## Objetivo
@@ -113,42 +283,3 @@ Obs: o formato da url acima é meramente ilustrativo e não define qualquer padr
 A tela do tipo SELECAO exibe uma lista de opções para que o usuário.
 
 O aplicativo envia uma requisição POST para a url informada e com o body definido pelo objeto dentro de cada item da lista de seleção, quando o mesmo é acionado, semelhando ao funcionamento dos botões da tela FORMULARIO.
-
-# desafio-votacao
-
-## Teste de performance
-
-Com o PostgreSQL configurado e as migrations do projeto já aplicadas, execute:
-
-```shell
-mvn test -Dtest=VotoPerformanceTest
-mvn test -Dtest=VotoPerformanceTest -Dperformance.votes=500000
-```
-
-O padrão é 100.000 votos. Use no terminal as mesmas variáveis `DB_URL`,
-`DB_USERNAME` e `DB_PASSWORD` da aplicação (as variáveis do IntelliJ não são
-automaticamente compartilhadas com o terminal). Não é necessário iniciar a API.
-O teste não inicia servidor HTTP, não executa Flyway e apenas valida o schema existente.
-
-A pauta, sessão e votos são gerados automaticamente por SQL com `generate_series`,
-sem cadastro manual, chamadas HTTP ou uma lista de entidades em memória.
-A distribuição é determinística: metade SIM e o restante NAO. A contabilização
-executa o método JPQL real `VotoRepository.contabilizarPorPautaId`.
-O relatório apresenta preparação e contabilização sem limite arbitrário de tempo.
-O teste mede uma consulta após inserção, com dados em cache; não é um teste de
-throughput HTTP, concorrência ou latência do Client.
-
-Toda a massa permanece em uma transação sem commit e é desfeita por rollback,
-inclusive em caso de falha. Nenhum dado anterior é apagado. As sequências de IDs
-avançam mesmo com rollback; a execução consome recursos e pode gerar espaço
-recuperável pelo autovacuum. Evite executá-la durante medições concorrentes.
-`mvn test` e `mvn clean test` normais excluem este benchmark; `-Dtest=VotoPerformanceTest`
-o seleciona explicitamente.
-
-## Versionamento da API
-
-A estratégia é versionamento pela URL: `/api/v1/...`. Pautas, sessões, votos,
-resultado e contratos mobile usam esse prefixo. Mudanças compatíveis permanecem
-na v1; mudanças que quebrem contratos exigirão uma nova versão, com transição
-documentada para os consumidores. Nenhuma v2 foi criada. Endpoints técnicos de
-infraestrutura não precisam seguir o versionamento funcional.
